@@ -6,6 +6,7 @@ import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
 import android.widget.Button
+import android.widget.EditText
 import androidx.navigation.fragment.findNavController
 
 /**
@@ -23,15 +24,17 @@ class MainMenu : Fragment() {
         val btn3x3 = view.findViewById<Button>(R.id.btn3x3);
         val btn4x4 = view.findViewById<Button>(R.id.btn4x4);
         val btn5x5 = view.findViewById<Button>(R.id.btn5x5);
+        val etPlayer1 = view.findViewById<EditText>(R.id.etPlayer1)
+        val etPlayer2 = view.findViewById<EditText>(R.id.etPlayer2)
 
         btn3x3.setOnClickListener {
-            navigateToGame(3)
+            navigateToGame(3, etPlayer1.text.toString(), etPlayer2.text.toString())
         }
         btn4x4.setOnClickListener {
-            navigateToGame(4)
+            navigateToGame(4, etPlayer1.text.toString(), etPlayer2.text.toString())
         }
         btn5x5.setOnClickListener {
-            navigateToGame(5)
+            navigateToGame(5, etPlayer1.text.toString(), etPlayer2.text.toString())
         }
 
         return view
@@ -49,10 +52,12 @@ class MainMenu : Fragment() {
             MainMenu().apply {}
     }
 
-    private fun navigateToGame(gridSize: Int) {
+    private fun navigateToGame(gridSize: Int, player1: String, player2: String) {
         val navController = findNavController();
         navController.navigate(R.id.action_mainMenu_to_game, Bundle().apply {
             putInt(GRID_SIZE, gridSize)
+            putString(PLAYER_1, player1)
+            putString(PLAYER_2, player2)
         });
     }
 }

@@ -18,6 +18,26 @@
             android:textAlignment="center"
             android:textAppearance="@style/TextAppearance.AppCompat.Display1" />
 
+        <EditText
+            android:id="@+id/etPlayer1"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:ems="10"
+            android:inputType="text"
+            android:maxLength="12"
+            android:maxLines="1"
+            android:text="Player 1" />
+
+        <EditText
+            android:id="@+id/etPlayer2"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:ems="10"
+            android:inputType="text"
+            android:maxLength="12"
+            android:maxLines="1"
+            android:text="Player 2" />
+
         <Button
             android:id="@+id/btn3x3"
             android:layout_width="match_parent"
@@ -35,5 +55,6 @@
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:text="5x5" />
+
     </LinearLayout>
 </FrameLayout>

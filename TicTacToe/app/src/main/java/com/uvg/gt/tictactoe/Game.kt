@@ -12,8 +12,11 @@ import android.widget.TextView
 import androidx.core.view.children
 import androidx.fragment.app.Fragment
 import androidx.navigation.fragment.findNavController
+import kotlin.random.Random
 
 const val GRID_SIZE = "gridSize"
+const val PLAYER_1 = "player1"
+const val PLAYER_2 = "player2"
 
 enum class CellState {
     EMPTY,
@@ -33,6 +36,9 @@ enum class Player {
  */
 class Game : Fragment() {
     private var gridSize: Int? = null
+    private var player1: String? = null
+    private var player2: String? = null
+
     private var gridView: TableLayout? = null
     private var innerGrid: MutableList<MutableList<CellState>>? = null
     private var playerTurn: Player = Player.X
@@ -42,6 +48,8 @@ class Game : Fragment() {
         super.onCreate(savedInstanceState)
         arguments?.let {
             gridSize = it.getInt(GRID_SIZE)
+            player1 = it.getString(PLAYER_1)
+            player2 = it.getString(PLAYER_2)
         }
     }
 
@@ -55,6 +63,11 @@ class Game : Fragment() {
         val view = inflater.inflate(R.layout.fragment_game, container, false)
         val tvTitle = view.findViewById<TextView>(R.id.tvPlayerTurn)
         val btnBack = view.findViewById<Button>(R.id.btnBackMainMenu)
+
+        if(Random.nextInt() % 2 == 0) {
+            changeTurn(tvTitle) // This makes it so that sometimes the O player will start!
+        }
+
         btnBack.setOnClickListener {
             val nav = findNavController()
             nav.navigate(R.id.action_game_to_mainMenu2)
@@ -86,13 +99,12 @@ class Game : Fragment() {
                     occupiedCellsCount++
 
                     if (checkIfWon(playerTurn, i, j)) {
-                        tvTitle.text = "Jugador " + playerTurn + " GANA!"
+                        tvTitle.text = mapPlayerTurnToName(playerTurn) + " GANA!"
                         disableAllButtons()
                     } else if (checkIfDraw()) {
                         tvTitle.text = "Empate!"
                     } else {
-                        changeTurn()
-                        tvTitle.text = "Turno de: " + playerTurn
+                        changeTurn(tvTitle)
                     }
                 }
                 row.addView(cell)
@@ -212,16 +224,22 @@ class Game : Fragment() {
         return occupiedCellsCount == gridSize!! * gridSize!!
     }
 
-    private fun changeTurn() {
+    private fun changeTurn(tvTitle: TextView) {
         playerTurn = when (playerTurn) {
             Player.O -> Player.X
             Player.X -> Player.O
         }
+        tvTitle.text = "Turno de: " + mapPlayerTurnToName(playerTurn)
     }
 
     private fun mapPlayerTurnToCellState(turn: Player): CellState = when (turn) {
         Player.O -> CellState.O
         Player.X -> CellState.X
+    }
+
+    private fun mapPlayerTurnToName(turn: Player): String? = when (turn) {
+        Player.O -> player2
+        Player.X -> player1
     }
 
     companion object {
