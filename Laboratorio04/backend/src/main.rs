@@ -1,7 +1,6 @@
 use std::net::SocketAddr;
 
 use axum::{
-    extract::ConnectInfo,
     routing::{get, post},
     Json, Router,
 };
@@ -12,15 +11,15 @@ async fn main() {
     tracing_subscriber::registry()
         .with(
             tracing_subscriber::EnvFilter::try_from_default_env()
-                .unwrap_or_else(|_| "example_testing=debug,tower_http=debug".into()),
+                .unwrap_or_else(|_| "backend=debug,tower_http=debug".into()),
         )
         .with(tracing_subscriber::fmt::layer())
         .init();
 
     let addr = if cfg!(debug_assertions) {
-        SocketAddr::from(([127,0,0,1], 3000))
+        SocketAddr::from(([127, 0, 0, 1], 3000))
     } else {
-        SocketAddr::from(([0,0,0,0], 3000))
+        SocketAddr::from(([0, 0, 0, 0], 3000))
     };
 
     start_server_on(addr).await
@@ -48,10 +47,8 @@ fn app() -> Router {
                 Json(serde_json::json!({ "data": payload.0 }))
             }),
         )
-        .route(
-            "/requires-connect-into",
-            get(|ConnectInfo(addr): ConnectInfo<SocketAddr>| async move { format!("Hi {addr}") }),
-        )
+        .route("/register", post(backend::register_user_route))
+        .route("/login", post(backend::login_user_route))
 }
 
 #[cfg(test)]
@@ -59,9 +56,12 @@ mod tests {
     use super::*;
     use axum::{
         body::Body,
-        extract::connect_info::MockConnectInfo,
         http::{self, Request, StatusCode},
     };
+    use backend::{LoginUserPayload, RegisterUserPayload, generate_jwt, APP_SECRET, UserJWTInfo, extract_jwt};
+    use hyper::Method;
+    use hyper::Response;
+    use jwt::VerifyWithKey;
     use serde_json::{json, Value};
     use std::net::{SocketAddr, TcpListener};
     use tower::Service; // for `call`
@@ -128,6 +128,69 @@ mod tests {
         assert!(body.is_empty());
     }
 
+    #[tokio::test]
+    async fn register_user_route() {
+        let app = app();
+
+        let value = RegisterUserPayload {
+            username: "ElrohirGT".to_owned(),
+            email: "elrohirgt@gmail.com".to_owned(),
+            password: "123456".to_owned(),
+        };
+
+        let body = serde_json::to_string(&value).unwrap();
+        println!("The body of the request is: {:?}", body);
+
+        let response = app
+            .oneshot(
+                Request::builder()
+                    .method(Method::POST)
+                    .uri("/register")
+                    .header(http::header::CONTENT_TYPE, mime::APPLICATION_JSON.as_ref())
+                    .body(Body::from(body))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+
+        println!("Response reached: {:?}", response);
+        assert_eq!(response.status(), StatusCode::OK);
+    }
+
+    #[tokio::test]
+    async fn login_user_route() {
+        let app = app();
+
+        let email = "elrohirgt@gmail.com".to_string();
+        let value = LoginUserPayload {
+            email: email.clone(),
+            password: "12345".to_string(),
+        };
+
+        let body = serde_json::to_string(&value).unwrap();
+        println!("The body of the request is: {:?}", body);
+
+        let response = app
+            .oneshot(
+                Request::builder()
+                    .method(Method::POST)
+                    .uri("/login")
+                    .header(http::header::CONTENT_TYPE, mime::APPLICATION_JSON.as_ref())
+                    .body(Body::from(body))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+
+        println!("Response reached: {:?}", response);
+        assert_eq!(response.status(), StatusCode::OK);
+
+        let body = hyper::body::to_bytes(response.into_body()).await.unwrap();
+        let body = String::from_utf8(body.to_vec()).unwrap();
+        let received = extract_jwt(APP_SECRET, body);
+        assert_eq!(received.email, email);
+    }
+
     // You can also spawn a server and talk to it like any other HTTP server:
     #[tokio::test]
     async fn the_real_deal() {
@@ -172,22 +235,4 @@ mod tests {
         let response = app.ready().await.unwrap().call(request).await.unwrap();
         assert_eq!(response.status(), StatusCode::OK);
     }
-
-    // Here we're calling `/requires-connect-into` which requires `ConnectInfo`
-    //
-    // That is normally set with `Router::into_make_service_with_connect_info` but we can't easily
-    // use that during tests. The solution is instead to set the `MockConnectInfo` layer during
-    // tests.
-    #[tokio::test]
-    async fn with_into_make_service_with_connect_info() {
-        let mut app = app().layer(MockConnectInfo(SocketAddr::from(([0, 0, 0, 0], 3000))));
-
-        let request = Request::builder()
-            .uri("/requires-connect-into")
-            .body(Body::empty())
-            .unwrap();
-        let response = app.ready().await.unwrap().call(request).await.unwrap();
-        assert_eq!(response.status(), StatusCode::OK);
-    }
 }
-

@@ -1,0 +1,5 @@
+# Testing registering a user
+curl --header 'Content-Type: application/json' --data '{"username":"ElrohirGT", "email": "elrohirgt@gmail.com", "password":"12345"}' http://127.0.0.1:3000/register
+
+# Testing loginin a user
+curl --header 'Content-Type: application/json' --data '{"email": "elrohirgt@gmail.com", "password":"1237645"}' http://127.0.0.1:3000/login
