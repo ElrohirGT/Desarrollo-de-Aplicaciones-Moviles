@@ -1,3 +1,5 @@
+use std::sync::Arc;
+
 use axum::{response::IntoResponse, Json};
 use chrono::{DateTime, Duration, Utc};
 use hmac::{Hmac, Mac};
@@ -5,6 +7,8 @@ use hyper::StatusCode;
 use jwt::{SignWithKey, VerifyWithKey};
 use serde::{Deserialize, Serialize};
 use sha2::Sha256;
+use tokio_postgres::Client;
+use uuid::Uuid;
 
 #[derive(Debug, Deserialize, Serialize)]
 pub struct RegisterUserPayload {
@@ -32,10 +36,26 @@ impl UserJWTInfo {
     }
 }
 
+#[derive(Debug, Deserialize, Serialize)]
+pub struct DBUser {
+    pub user_id: Uuid,
+    pub username: String,
+    pub email: String,
+    pub password: String,
+}
+
+#[derive(Debug, Deserialize, Serialize)]
+pub struct DBSession {
+    session_id: Uuid,
+    user_id: Uuid,
+    expire_date: DateTime<Utc>,
+}
+
 pub const APP_SECRET: &'static [u8] = b"super-secret-key";
 
 pub async fn register_user_route(
     payload: Json<serde_json::Value>,
+    db_client: Arc<Option<Client>>,
 ) -> Result<impl IntoResponse, StatusCode> {
     // TODO Handle error from incorrect JSON value...
     tracing::debug!("Enters register user route...");
@@ -47,14 +67,48 @@ pub async fn register_user_route(
 
     tracing::debug!("Trying to register {}...", username);
 
-    //TODO Connect to DB/Reuse connection and insert user info...
-    tracing::debug!("Registered {}...", username);
+    if let Some(conn) = db_client.as_ref() {
+        tracing::debug!("Connection to DB obtained!");
+        tracing::debug!("Checking if {} is not already in use...", email);
+
+        let result = conn
+            .query("SELECT * FROM \"User\" WHERE email=$1", &[&email])
+            .await
+            .unwrap();
+        //.map_err(|_| StatusCode::BAD_REQUEST)?;
+
+        if !result.is_empty() {
+            tracing::error!("Email is already in use!");
+            Err(StatusCode::BAD_REQUEST)?;
+        }
+
+        tracing::debug!("User does not exists, creating user...");
+        tracing::debug!("Creating user id...");
+        let user_id = Uuid::new_v4().to_string();
+
+        tracing::debug!("Inserting into DB...");
+        let statement = conn
+            .prepare("INSERT INTO \"User\" (user_id, username, email, password) VALUES ($1, $2, $3, $4)")
+            .await
+            .unwrap();
+        //.map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+        let modified_rows = conn
+            .execute(&statement, &[&user_id, &username, &email, &password])
+            .await
+            .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+        if modified_rows != 1 {
+            tracing::error!("No user inserted in DB!");
+            Err(StatusCode::INTERNAL_SERVER_ERROR)?;
+        }
+    }
+    tracing::debug!("Registered {} with email {}...", username, email);
 
     Ok(())
 }
 
 pub async fn login_user_route(
     payload: Json<serde_json::Value>,
+    db_client: Arc<Option<Client>>,
 ) -> Result<impl IntoResponse, StatusCode> {
     // TODO Handle error from incorrect JSON value...
     let LoginUserPayload { email, password } =

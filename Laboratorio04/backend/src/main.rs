@@ -1,13 +1,16 @@
-use std::net::SocketAddr;
+use std::{net::SocketAddr, sync::Arc};
 
 use axum::{
     routing::{get, post},
     Json, Router,
 };
+use tokio_postgres::{connect, Client, Error, NoTls};
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 
+const DB_CONNECTION_CONFIG: &'static str = "host=localhost port=5432 user=postgres dbname=lab04 connect_timeout=10";
+
 #[tokio::main]
-async fn main() {
+async fn main() -> Result<(), Error> {
     tracing_subscriber::registry()
         .with(
             tracing_subscriber::EnvFilter::try_from_default_env()
@@ -22,15 +25,25 @@ async fn main() {
         SocketAddr::from(([0, 0, 0, 0], 3000))
     };
 
-    start_server_on(addr).await
+    let (client, connection) = tokio_postgres::connect(DB_CONNECTION_CONFIG, NoTls).await?;
+
+    let db_connection_handle = tokio::spawn(connection);
+
+    start_server_on(addr, client).await;
+    if let Err(e) = db_connection_handle.await {
+        tracing::error!("Connection with the DB couldn't be established!");
+        tracing::error!("{:?}", e);
+    }
+
+    Ok(())
 }
 
 /// Starts a server on the specified address
-async fn start_server_on(addr: SocketAddr) {
+async fn start_server_on(addr: SocketAddr, client: Client) {
     tracing::debug!("listening on {}", addr);
 
     axum::Server::bind(&addr)
-        .serve(app().into_make_service())
+        .serve(app(Arc::new(Some(client))).into_make_service())
         .await
         .unwrap();
 }
@@ -38,7 +51,8 @@ async fn start_server_on(addr: SocketAddr) {
 /// Having a function that produces our app makes it easy to call it from tests
 /// without having to create an HTTP server.
 #[allow(dead_code)]
-fn app() -> Router {
+fn app(db_client: Arc<Option<Client>>) -> Router {
+    let db_client_copy = db_client.clone();
     Router::new()
         .route("/", get(|| async { "Hello, World!" }))
         .route(
@@ -47,8 +61,8 @@ fn app() -> Router {
                 Json(serde_json::json!({ "data": payload.0 }))
             }),
         )
-        .route("/register", post(backend::register_user_route))
-        .route("/login", post(backend::login_user_route))
+        .route("/register", post(move|p| backend::register_user_route(p, db_client)))
+        .route("/login", post(move|p| backend::login_user_route(p, db_client_copy)))
 }
 
 #[cfg(test)]
@@ -58,10 +72,9 @@ mod tests {
         body::Body,
         http::{self, Request, StatusCode},
     };
-    use backend::{LoginUserPayload, RegisterUserPayload, generate_jwt, APP_SECRET, UserJWTInfo, extract_jwt};
+    use backend::{extract_jwt, LoginUserPayload, RegisterUserPayload, APP_SECRET};
     use hyper::Method;
-    use hyper::Response;
-    use jwt::VerifyWithKey;
+
     use serde_json::{json, Value};
     use std::net::{SocketAddr, TcpListener};
     use tower::Service; // for `call`
@@ -69,7 +82,7 @@ mod tests {
 
     #[tokio::test]
     async fn hello_world() {
-        let app = app();
+        let app = app(Arc::default());
 
         // `Router` implements `tower::Service<Request<Body>>` so we can
         // call it like any tower service, no need to run an HTTP server.
@@ -86,7 +99,7 @@ mod tests {
 
     #[tokio::test]
     async fn json() {
-        let app = app();
+        let app = app(Arc::default());
 
         let response = app
             .oneshot(
@@ -111,7 +124,7 @@ mod tests {
 
     #[tokio::test]
     async fn not_found() {
-        let app = app();
+        let app = app(Arc::default());
 
         let response = app
             .oneshot(
@@ -130,7 +143,7 @@ mod tests {
 
     #[tokio::test]
     async fn register_user_route() {
-        let app = app();
+        let app = app(Arc::default());
 
         let value = RegisterUserPayload {
             username: "ElrohirGT".to_owned(),
@@ -159,7 +172,7 @@ mod tests {
 
     #[tokio::test]
     async fn login_user_route() {
-        let app = app();
+        let app = app(Arc::default());
 
         let email = "elrohirgt@gmail.com".to_string();
         let value = LoginUserPayload {
@@ -200,7 +213,7 @@ mod tests {
         tokio::spawn(async move {
             axum::Server::from_tcp(listener)
                 .unwrap()
-                .serve(app().into_make_service())
+                .serve(app(Arc::default()).into_make_service())
                 .await
                 .unwrap();
         });
@@ -225,7 +238,7 @@ mod tests {
     // in multiple request
     #[tokio::test]
     async fn multiple_request() {
-        let mut app = app();
+        let mut app = app(Arc::default());
 
         let request = Request::builder().uri("/").body(Body::empty()).unwrap();
         let response = app.ready().await.unwrap().call(request).await.unwrap();
