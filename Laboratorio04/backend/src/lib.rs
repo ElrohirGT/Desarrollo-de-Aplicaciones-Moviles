@@ -57,13 +57,22 @@ pub async fn register_user_route(
     payload: Json<serde_json::Value>,
     db_client: Arc<Option<Client>>,
 ) -> Result<impl IntoResponse, StatusCode> {
-    // TODO Handle error from incorrect JSON value...
     tracing::debug!("Enters register user route...");
     let RegisterUserPayload {
         username,
         email,
         password,
-    } = serde_json::from_value(payload.0).map_err(|_| StatusCode::BAD_REQUEST)?;
+    } = match serde_json::from_value(payload.0.clone()) {
+        Ok(r) => r,
+        Err(err) => {
+            tracing::error!(
+                "Error parsing register user route payload into object: {}",
+                payload.0
+            );
+            tracing::error!("Error: {}", err);
+            Err(StatusCode::BAD_REQUEST)?
+        }
+    };
 
     tracing::debug!("Trying to register {}...", username);
 
@@ -78,7 +87,7 @@ pub async fn register_user_route(
         //.map_err(|_| StatusCode::BAD_REQUEST)?;
 
         if !result.is_empty() {
-            tracing::error!("Email is already in use!");
+            tracing::error!("Email {} is already in use!", email);
             Err(StatusCode::BAD_REQUEST)?;
         }
 
@@ -87,15 +96,35 @@ pub async fn register_user_route(
         let user_id = Uuid::new_v4().to_string();
 
         tracing::debug!("Inserting into DB...");
-        let statement = conn
-            .prepare("INSERT INTO \"User\" (user_id, username, email, password) VALUES ($1, $2, $3, $4)")
+        let statement = match conn
+            .prepare(
+                "INSERT INTO \"User\" (user_id, username, email, password) VALUES ($1, $2, $3, $4)",
+            )
             .await
-            .unwrap();
-        //.map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
-        let modified_rows = conn
+        {
+            Ok(s) => s,
+            Err(err) => {
+                tracing::error!(
+                    "An error has occurred when inserting the user {} on the DB",
+                    username
+                );
+                tracing::error!("Error: {}", err);
+                Err(StatusCode::INTERNAL_SERVER_ERROR)?
+            }
+        };
+
+        let modified_rows = match conn
             .execute(&statement, &[&user_id, &username, &email, &password])
             .await
-            .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+        {
+            Ok(r) => r,
+            Err(err) => {
+                tracing::error!("Couldn't insert the user {} on the DB!", username);
+                tracing::error!("Error: {}", err);
+                Err(StatusCode::INTERNAL_SERVER_ERROR)?
+            }
+        };
+
         if modified_rows != 1 {
             tracing::error!("No user inserted in DB!");
             Err(StatusCode::INTERNAL_SERVER_ERROR)?;
