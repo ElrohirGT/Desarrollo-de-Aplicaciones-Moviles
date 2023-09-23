@@ -12,5 +12,5 @@ CREATE  TABLE "User" (
 CREATE TABLE "Session" (
 	session_id VARCHAR(64) PRIMARY KEY NOT NULL,
 	user_id VARCHAR(64) NOT NULL references "User"(user_id),
-	expire_date TIMESTAMP NOT NULL
+	expire_date TIMESTAMP WITH TIME ZONE NOT NULL
 );

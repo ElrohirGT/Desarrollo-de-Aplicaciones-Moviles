@@ -38,7 +38,7 @@ impl UserJWTInfo {
 
 #[derive(Debug, Deserialize, Serialize)]
 pub struct DBUser {
-    pub user_id: Uuid,
+    pub user_id: String, // UUID
     pub username: String,
     pub email: String,
     pub password: String,
@@ -46,9 +46,19 @@ pub struct DBUser {
 
 #[derive(Debug, Deserialize, Serialize)]
 pub struct DBSession {
-    session_id: Uuid,
-    user_id: Uuid,
+    session_id: String, // UUID
+    user_id: String,    // UUID
     expire_date: DateTime<Utc>,
+}
+
+impl DBSession {
+    pub fn new(user_id: String, expire_date: DateTime<Utc>) -> Self {
+        DBSession {
+            user_id,
+            expire_date,
+            session_id: Uuid::new_v4().to_string(),
+        }
+    }
 }
 
 pub const APP_SECRET: &'static [u8] = b"super-secret-key";
@@ -139,18 +149,48 @@ pub async fn login_user_route(
     payload: Json<serde_json::Value>,
     db_client: Arc<Option<Client>>,
 ) -> Result<impl IntoResponse, StatusCode> {
+    tracing::debug!("Login in a user...");
     // TODO Handle error from incorrect JSON value...
-    let LoginUserPayload { email, password } =
-        serde_json::from_value(payload.0).map_err(|_| StatusCode::BAD_REQUEST)?;
+    let LoginUserPayload { email, password } = serde_json::from_value(payload.0).unwrap();
+    tracing::debug!(
+        "Payload extracted successfully from {} login attempt",
+        email
+    );
 
-    // TODO Check on the DB if the user exists
-    let user_exists_and_is_valid = true;
+    if let Some(conn) = db_client.as_ref() {
+        tracing::debug!("DB Connection found");
 
-    if user_exists_and_is_valid {
+        tracing::debug!("Selecting user from the database...");
+        let row = conn
+            .query_one("SELECT user_id FROM \"User\" WHERE email=$1 AND password=$2", &[&email, &password])
+            .await
+            .unwrap();
+        let user_id: String = row.try_get("user_id").unwrap();
+        tracing::debug!("Username with id {} found!", user_id);
+
+        tracing::debug!("Creating session...");
+        let session = DBSession::new(user_id, Utc::now() + Duration::minutes(30));
+        let record_added = conn
+            .execute(
+                "INSERT INTO \"Session\" (session_id, user_id, expire_date) VALUES ($1, $2, $3)",
+                &[&session.session_id, &session.user_id, &session.expire_date],
+            )
+            .await
+            .unwrap()
+            == 1;
+
+        if !record_added {
+            tracing::error!("Couldn't insert the record into the DB!");
+            Err(StatusCode::INTERNAL_SERVER_ERROR)?;
+        }
+
+        tracing::debug!("Generating JWT...");
         let token = generate_jwt(APP_SECRET, UserJWTInfo::from_email(email));
+
+        tracing::debug!("JWT generated!");
         Ok(token)
     } else {
-        Err::<String, _>(StatusCode::BAD_REQUEST)
+        Ok(String::new())
     }
 }
 
