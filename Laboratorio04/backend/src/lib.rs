@@ -46,9 +46,9 @@ pub struct UserInfo {
 impl UserJWTInfo {
     pub fn from_db_session(session: DBSession) -> Self {
         let DBSession {
-            session_id,
             user_id,
             expire_date,
+            session_id: _,
         } = session;
         UserJWTInfo {
             user_id,
@@ -74,7 +74,7 @@ impl DBSession {
     }
 }
 
-pub const APP_SECRET: &'static [u8] = b"super-secret-key";
+pub const APP_SECRET: &[u8] = b"super-secret-key";
 
 pub async fn register_user_route(
     payload: Json<serde_json::Value>,
@@ -288,7 +288,7 @@ fn obtain_salt(db_password: &str) -> Vec<u8> {
     let decoded_bytes = general_purpose::STANDARD_NO_PAD
         .decode(db_password.as_bytes())
         .unwrap();
-    (&decoded_bytes[0..16]).to_vec()
+    decoded_bytes[0..16].to_vec()
 }
 
 fn encrypt_password(password: String) -> String {
@@ -304,7 +304,7 @@ fn encrypt_password_with_salt(password: String, salt: &[u8]) -> String {
     let mut hasher = Sha256::new();
     hasher.update(password_bytes);
     let password_bytes = hasher.finalize().to_vec();
-    let password_bytes: Vec<u8> = salt.chain(password_bytes.iter()).map(|u| *u).collect();
+    let password_bytes: Vec<u8> = salt.chain(password_bytes.iter()).copied().collect();
 
     general_purpose::STANDARD_NO_PAD.encode(password_bytes)
 }

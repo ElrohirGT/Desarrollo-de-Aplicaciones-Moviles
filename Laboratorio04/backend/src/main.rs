@@ -4,10 +4,10 @@ use axum::{
     routing::{get, post},
     Json, Router,
 };
-use tokio_postgres::{connect, Client, Error, NoTls};
+use tokio_postgres::{Client, Error, NoTls};
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 
-const DB_CONNECTION_CONFIG: &'static str = "host=localhost port=5432 user=postgres dbname=lab04 connect_timeout=10";
+const DB_CONNECTION_CONFIG: &str = "host=localhost port=5432 user=postgres dbname=lab04 connect_timeout=10";
 
 #[tokio::main]
 async fn main() -> Result<(), Error> {
@@ -72,7 +72,7 @@ mod tests {
         body::Body,
         http::{self, Request, StatusCode},
     };
-    use backend::{extract_jwt, LoginUserPayload, RegisterUserPayload, APP_SECRET};
+    use backend::{RegisterUserPayload};
     use hyper::Method;
 
     use serde_json::{json, Value};
