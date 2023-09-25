@@ -18,5 +18,6 @@ in
     ];
     shellHook = ''
       export RUST_BACKTRACE=1
+	  alias and="android-studio > /dev/null 2>&1 &"
       '';
   }
