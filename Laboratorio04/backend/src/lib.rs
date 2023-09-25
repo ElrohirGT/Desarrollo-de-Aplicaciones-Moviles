@@ -26,24 +26,35 @@ pub struct LoginUserPayload {
 }
 
 #[derive(Debug, Deserialize, Serialize)]
-pub struct UserJWTInfo {
-    pub email: String,
-    pub expire_date: DateTime<Utc>,
-}
-
-impl UserJWTInfo {
-    pub fn from_email(email: String) -> Self {
-        let expire_date = Utc::now() + Duration::days(2);
-        UserJWTInfo { email, expire_date }
-    }
+pub struct GetUserInfoPayload {
+    pub token: String,
 }
 
 #[derive(Debug, Deserialize, Serialize)]
-pub struct DBUser {
-    pub user_id: String, // UUID
-    pub username: String,
+pub struct UserJWTInfo {
+    pub user_id: String,
+    pub expire_date: DateTime<Utc>,
+}
+
+#[derive(Debug, Deserialize, Serialize)]
+pub struct UserInfo {
+    pub user_id: String,
+    pub expire_date: DateTime<Utc>,
     pub email: String,
-    pub password: String,
+}
+
+impl UserJWTInfo {
+    pub fn from_db_session(session: DBSession) -> Self {
+        let DBSession {
+            session_id,
+            user_id,
+            expire_date,
+        } = session;
+        UserJWTInfo {
+            user_id,
+            expire_date,
+        }
+    }
 }
 
 #[derive(Debug, Deserialize, Serialize)]
@@ -208,7 +219,7 @@ pub async fn login_user_route(
         }
 
         tracing::debug!("Generating JWT...");
-        let token = generate_jwt(APP_SECRET, UserJWTInfo::from_email(email));
+        let token = generate_jwt(APP_SECRET, UserJWTInfo::from_db_session(session));
 
         tracing::debug!("JWT generated!");
         Ok(token)
@@ -217,20 +228,76 @@ pub async fn login_user_route(
     }
 }
 
-pub fn obtain_salt(db_password: &str) -> Vec<u8> {
+pub async fn get_user_info(
+    payload: Json<serde_json::Value>,
+    db_client: Arc<Option<Client>>,
+) -> Result<impl IntoResponse, StatusCode> {
+    let GetUserInfoPayload { token } = serde_json::from_value(payload.0).unwrap();
+    let token_info = extract_jwt(APP_SECRET, token);
+    if !is_logged_in(&token_info, db_client.clone()).await {
+        Err(StatusCode::BAD_REQUEST)?
+    }
+
+    if let Some(conn) = db_client.as_ref() {
+        let row = conn.query_one(
+            "SELECT u.user_id,u.email,s.expire_date FROM \"User\" as u INNER_JOIN \"Session\" as s WHERE user_id=$1",
+            &[&token_info.user_id],
+        )
+        .await
+        .unwrap();
+
+        let user_id = row.try_get("user_id").unwrap();
+        let email = row.try_get("email").unwrap();
+        let expire_date = row.try_get("user_id").unwrap();
+
+        let user_info = UserInfo {
+            user_id,
+            email,
+            expire_date,
+        };
+
+        Ok(serde_json::to_string(&user_info).unwrap())
+    } else {
+        Err(StatusCode::INTERNAL_SERVER_ERROR)
+    }
+}
+
+async fn is_logged_in(token: &UserJWTInfo, db_client: Arc<Option<Client>>) -> bool {
+    let current_date = Utc::now();
+
+    if let Some(conn) = db_client.as_ref() {
+        let rows = conn
+            .query(
+                "SELECT expire_date FROM \"Session\" WHERE user_id=$1",
+                &[&token.user_id],
+            )
+            .await
+            .unwrap();
+        rows.iter()
+            .map(|r| {
+                let db_date: DateTime<Utc> = r.try_get("expire_date").unwrap();
+                db_date == token.expire_date && current_date < db_date
+            })
+            .any(|a| a)
+    } else {
+        false
+    }
+}
+
+fn obtain_salt(db_password: &str) -> Vec<u8> {
     let decoded_bytes = general_purpose::STANDARD_NO_PAD
         .decode(db_password.as_bytes())
         .unwrap();
     (&decoded_bytes[0..16]).to_vec()
 }
 
-pub fn encrypt_password(password: String) -> String {
+fn encrypt_password(password: String) -> String {
     let mut rand = thread_rng();
     let salt: [u8; 16] = rand.gen();
     encrypt_password_with_salt(password, &salt)
 }
 
-pub fn encrypt_password_with_salt(password: String, salt: &[u8]) -> String {
+fn encrypt_password_with_salt(password: String, salt: &[u8]) -> String {
     let salt = salt.iter();
     let password_bytes = password.into_bytes();
 

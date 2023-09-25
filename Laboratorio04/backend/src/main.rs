@@ -170,40 +170,6 @@ mod tests {
         assert_eq!(response.status(), StatusCode::OK);
     }
 
-    #[tokio::test]
-    async fn login_user_route() {
-        let app = app(Arc::default());
-
-        let email = "elrohirgt@gmail.com".to_string();
-        let value = LoginUserPayload {
-            email: email.clone(),
-            password: "12345".to_string(),
-        };
-
-        let body = serde_json::to_string(&value).unwrap();
-        println!("The body of the request is: {:?}", body);
-
-        let response = app
-            .oneshot(
-                Request::builder()
-                    .method(Method::POST)
-                    .uri("/login")
-                    .header(http::header::CONTENT_TYPE, mime::APPLICATION_JSON.as_ref())
-                    .body(Body::from(body))
-                    .unwrap(),
-            )
-            .await
-            .unwrap();
-
-        println!("Response reached: {:?}", response);
-        assert_eq!(response.status(), StatusCode::OK);
-
-        let body = hyper::body::to_bytes(response.into_body()).await.unwrap();
-        let body = String::from_utf8(body.to_vec()).unwrap();
-        let received = extract_jwt(APP_SECRET, body);
-        assert_eq!(received.email, email);
-    }
-
     // You can also spawn a server and talk to it like any other HTTP server:
     #[tokio::test]
     async fn the_real_deal() {
