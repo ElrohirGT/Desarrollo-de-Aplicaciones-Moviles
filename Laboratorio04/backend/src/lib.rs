@@ -1,12 +1,14 @@
 use std::sync::Arc;
 
 use axum::{response::IntoResponse, Json};
+use base64::{engine::general_purpose, Engine};
 use chrono::{DateTime, Duration, Utc};
 use hmac::{Hmac, Mac};
 use hyper::StatusCode;
 use jwt::{SignWithKey, VerifyWithKey};
+use rand::prelude::*;
 use serde::{Deserialize, Serialize};
-use sha2::Sha256;
+use sha2::{Digest, Sha256};
 use tokio_postgres::Client;
 use uuid::Uuid;
 
@@ -105,6 +107,9 @@ pub async fn register_user_route(
         tracing::debug!("Creating user id...");
         let user_id = Uuid::new_v4().to_string();
 
+        tracing::debug!("Encrypting password...");
+        let password = encrypt_password(password);
+
         tracing::debug!("Inserting into DB...");
         let statement = match conn
             .prepare(
@@ -162,11 +167,29 @@ pub async fn login_user_route(
 
         tracing::debug!("Selecting user from the database...");
         let row = conn
-            .query_one("SELECT user_id FROM \"User\" WHERE email=$1 AND password=$2", &[&email, &password])
+            .query_one(
+                "SELECT user_id, password FROM \"User\" WHERE email=$1",
+                &[&email],
+            )
             .await
             .unwrap();
+        tracing::debug!("Row found: {:?}", row);
+
         let user_id: String = row.try_get("user_id").unwrap();
+        let db_password: String = row.try_get("password").unwrap();
         tracing::debug!("Username with id {} found!", user_id);
+
+        tracing::debug!("Obtaining salt from password...");
+        let salt = obtain_salt(&db_password);
+
+        tracing::debug!("Encrypting payload password...");
+        let password = encrypt_password_with_salt(password, &salt);
+
+        tracing::debug!("Comparing passwords...");
+        if password != db_password {
+            tracing::error!("Passwords don't match!");
+            Err(StatusCode::BAD_REQUEST)?
+        }
 
         tracing::debug!("Creating session...");
         let session = DBSession::new(user_id, Utc::now() + Duration::minutes(30));
@@ -192,6 +215,31 @@ pub async fn login_user_route(
     } else {
         Ok(String::new())
     }
+}
+
+pub fn obtain_salt(db_password: &str) -> Vec<u8> {
+    let decoded_bytes = general_purpose::STANDARD_NO_PAD
+        .decode(db_password.as_bytes())
+        .unwrap();
+    (&decoded_bytes[0..16]).to_vec()
+}
+
+pub fn encrypt_password(password: String) -> String {
+    let mut rand = thread_rng();
+    let salt: [u8; 16] = rand.gen();
+    encrypt_password_with_salt(password, &salt)
+}
+
+pub fn encrypt_password_with_salt(password: String, salt: &[u8]) -> String {
+    let salt = salt.iter();
+    let password_bytes = password.into_bytes();
+
+    let mut hasher = Sha256::new();
+    hasher.update(password_bytes);
+    let password_bytes = hasher.finalize().to_vec();
+    let password_bytes: Vec<u8> = salt.chain(password_bytes.iter()).map(|u| *u).collect();
+
+    general_purpose::STANDARD_NO_PAD.encode(password_bytes)
 }
 
 pub fn generate_jwt(secret: &[u8], token_info: UserJWTInfo) -> String {
