@@ -14,7 +14,7 @@ in
       # (nixpkgs.rustChannelOf { rustToolchain = ./rust-toolchain; }).rust
       openssl
       pkg-config
-	  android-studio
+	  android-studio # Este lo puede quitar si no lo necesita / funciona
     ];
     shellHook = ''
       export RUST_BACKTRACE=1

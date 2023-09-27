@@ -2,7 +2,7 @@ use std::sync::Arc;
 
 use axum::{response::IntoResponse, Json};
 use base64::{engine::general_purpose, Engine};
-use chrono::{DateTime, Duration, Utc};
+use chrono::{DateTime, Datelike, Duration, Timelike, Utc};
 use hmac::{Hmac, Mac};
 use hyper::StatusCode;
 use jwt::{SignWithKey, VerifyWithKey};
@@ -40,6 +40,7 @@ pub struct UserJWTInfo {
 pub struct UserInfo {
     pub user_id: String,
     pub expire_date: DateTime<Utc>,
+    pub username: String,
     pub email: String,
 }
 
@@ -232,28 +233,38 @@ pub async fn get_user_info(
     payload: Json<serde_json::Value>,
     db_client: Arc<Option<Client>>,
 ) -> Result<impl IntoResponse, StatusCode> {
+    tracing::debug!("Parsing payload for get_user_info...");
     let GetUserInfoPayload { token } = serde_json::from_value(payload.0).unwrap();
+
+    tracing::debug!("Extracting JWT token {}...", token);
     let token_info = extract_jwt(APP_SECRET, token);
-    if !is_logged_in(&token_info, db_client.clone()).await {
+    let (is_logged_in, session_id) = is_logged_in(&token_info, db_client.clone()).await;
+    if !is_logged_in {
+        tracing::error!("The user is not logged in...");
         Err(StatusCode::BAD_REQUEST)?
     }
 
+    tracing::debug!("User has valid session active...");
+
+    tracing::debug!("Found DB connection...");
     if let Some(conn) = db_client.as_ref() {
         let row = conn.query_one(
-            "SELECT u.user_id,u.email,s.expire_date FROM \"User\" as u INNER_JOIN \"Session\" as s WHERE user_id=$1",
-            &[&token_info.user_id],
+            "SELECT u.user_id,u.email,se.expire_date,u.username FROM \"User\" as u INNER JOIN \"Session\" as se ON u.user_id = se.user_id WHERE u.user_id=$1 AND se.session_id=$2",
+            &[&token_info.user_id, &session_id],
         )
         .await
         .unwrap();
 
         let user_id = row.try_get("user_id").unwrap();
         let email = row.try_get("email").unwrap();
-        let expire_date = row.try_get("user_id").unwrap();
+        let expire_date = row.try_get("expire_date").unwrap();
+        let username = row.try_get("username").unwrap();
 
         let user_info = UserInfo {
             user_id,
             email,
             expire_date,
+            username,
         };
 
         Ok(serde_json::to_string(&user_info).unwrap())
@@ -262,26 +273,52 @@ pub async fn get_user_info(
     }
 }
 
-async fn is_logged_in(token: &UserJWTInfo, db_client: Arc<Option<Client>>) -> bool {
+async fn is_logged_in(token: &UserJWTInfo, db_client: Arc<Option<Client>>) -> (bool, String) {
     let current_date = Utc::now();
 
     if let Some(conn) = db_client.as_ref() {
         let rows = conn
             .query(
-                "SELECT expire_date FROM \"Session\" WHERE user_id=$1",
+                "SELECT expire_date,session_id FROM \"Session\" WHERE user_id=$1",
                 &[&token.user_id],
             )
             .await
             .unwrap();
+
         rows.iter()
             .map(|r| {
                 let db_date: DateTime<Utc> = r.try_get("expire_date").unwrap();
-                db_date == token.expire_date && current_date < db_date
+                let id = r.try_get("session_id").unwrap();
+                tracing::debug!("Comparing the dates");
+                tracing::debug!(
+                    "{} == {} && {} < {}",
+                    db_date,
+                    token.expire_date,
+                    current_date,
+                    db_date
+                );
+                tracing::debug!(
+                    "{} && {}",
+                    same_date(db_date, token.expire_date),
+                    current_date < db_date
+                );
+
+                (same_date(db_date, token.expire_date) && current_date < db_date, id)
             })
-            .any(|a| a)
+            .find(|(a, _)| *a)
+            .unwrap()
     } else {
-        false
+        (false, String::new())
     }
+}
+
+fn same_date(d1: DateTime<Utc>, d2: DateTime<Utc>) -> bool {
+    d1.second() == d2.second()
+        && d1.minute() == d2.minute()
+        && d1.hour() == d2.hour()
+        && d1.day() == d2.day()
+        && d1.month() == d2.month()
+        && d1.year() == d2.year()
 }
 
 fn obtain_salt(db_password: &str) -> Vec<u8> {

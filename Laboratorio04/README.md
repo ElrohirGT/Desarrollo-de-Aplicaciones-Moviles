@@ -1,4 +1,7 @@
 # Laboratorio 4
+
+[Link al video de Youtube](https://youtu.be/9StjofCQQ_c)
+
 Aplicación de registro y login de usuarios usando un JWT. El cliente está hecho en android y el backend en rust.
 
 Todo lo que el proyecto necesita para correr se encuentra dentro del archivo `default.nix`. Para utilizarlo puedes instalar [Nix](https://nixos.org/).

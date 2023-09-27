@@ -5,9 +5,12 @@ use axum::{
     Json, Router,
 };
 use tokio_postgres::{Client, Error, NoTls};
+use tower::ServiceBuilder;
+use tower_http::cors::{Any, CorsLayer};
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 
-const DB_CONNECTION_CONFIG: &str = "host=localhost port=5432 user=postgres dbname=lab04 connect_timeout=10";
+const DB_CONNECTION_CONFIG: &str =
+    "host=localhost port=5432 user=postgres dbname=lab04 connect_timeout=10";
 
 #[tokio::main]
 async fn main() -> Result<(), Error> {
@@ -42,8 +45,17 @@ async fn main() -> Result<(), Error> {
 async fn start_server_on(addr: SocketAddr, client: Client) {
     tracing::debug!("listening on {}", addr);
 
+    let cors = if cfg!(debug_assertions) {
+        CorsLayer::new()
+            .allow_methods(Any)
+            .allow_headers(Any)
+            .allow_origin(Any)
+    } else {
+        CorsLayer::new()
+    };
+
     axum::Server::bind(&addr)
-        .serve(app(Arc::new(Some(client))).into_make_service())
+        .serve(app(Arc::new(Some(client))).layer(cors).into_make_service())
         .await
         .unwrap();
 }
@@ -52,7 +64,8 @@ async fn start_server_on(addr: SocketAddr, client: Client) {
 /// without having to create an HTTP server.
 #[allow(dead_code)]
 fn app(db_client: Arc<Option<Client>>) -> Router {
-    let db_client_copy = db_client.clone();
+    let db_client_copy_1 = db_client.clone();
+    let db_client_copy_2 = db_client.clone();
     Router::new()
         .route("/", get(|| async { "Hello, World!" }))
         .route(
@@ -61,8 +74,18 @@ fn app(db_client: Arc<Option<Client>>) -> Router {
                 Json(serde_json::json!({ "data": payload.0 }))
             }),
         )
-        .route("/register", post(move|p| backend::register_user_route(p, db_client)))
-        .route("/login", post(move|p| backend::login_user_route(p, db_client_copy)))
+        .route(
+            "/register",
+            post(move |p| backend::register_user_route(p, db_client)),
+        )
+        .route(
+            "/login",
+            post(move |p| backend::login_user_route(p, db_client_copy_1)),
+        )
+        .route(
+            "/user/info",
+            post(move |p| backend::get_user_info(p, db_client_copy_2)),
+        )
 }
 
 #[cfg(test)]
@@ -72,7 +95,7 @@ mod tests {
         body::Body,
         http::{self, Request, StatusCode},
     };
-    use backend::{RegisterUserPayload};
+    use backend::RegisterUserPayload;
     use hyper::Method;
 
     use serde_json::{json, Value};
