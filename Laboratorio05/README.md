@@ -1,7 +1,7 @@
 # Laboratorio 05
 Aplicación móvil que muestra un anime random de MyAnimeList (MAL) y su lista de episodios.
 
-Puedes ver un [video de la app funcionando]() en Youtube.
+Puedes ver un [video de la app funcionando](https://youtu.be/QQVDprojfMg) en Youtube.
 
 ## API
 La API utilizada para obtener los datos se llama Jikan, no requiere ninguna clase de token de autenticación. Las principales rutas que se usarán son:
