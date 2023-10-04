@@ -47,6 +47,9 @@ android {
 }
 
 dependencies {
+    // Icons
+    implementation 'androidx.compose.material3:material3:1.1.2'
+
 
     // Navigation
     def nav_version = "2.5.3"
