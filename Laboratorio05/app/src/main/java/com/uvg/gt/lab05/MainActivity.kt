@@ -6,13 +6,14 @@ import androidx.activity.compose.setContent
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
-import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.tooling.preview.Preview
+import androidx.navigation.NavType
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
+import androidx.navigation.navArgument
 import com.uvg.gt.lab05.ui.theme.Lab05Theme
 
 class MainActivity : ComponentActivity() {
@@ -37,8 +38,11 @@ fun MainView() {
     val navController = rememberNavController()
 
     NavHost(navController = navController, startDestination = "Home") {
-        composable("Home") { HomeView() }
-        composable("AnimeDetailView") { HomeView() }
+        composable("Home") { HomeView(navController) }
+        composable(
+            "AnimeDetailView/{animeId}",
+            arguments = listOf(navArgument("animeId") { type = NavType.IntType })
+        ) { back -> AnimeDetailView(back.arguments?.getInt("animeId")!!, navController) }
     }
 }
 
