@@ -10,6 +10,6 @@ La API utilizada para obtener los datos se llama Jikan, no requiere ninguna clas
 
 ![Get random anime example](./imgs/get_random_anime.jpg)
 
-- [**getAnimeEpisodes**](https://docs.api.jikan.moe/#tag/anime/operation/getAnimeEpisodes): Ruta que obtiene una lista con todos los episodios del anime que se pasa por parámetro.
+- [**getAnimeEpisodes**](https://docs.api.jikan.moe/#tag/anime/operation/getAnimeEpisodes): Ruta que obtiene una lista con todos los episodios del anime que se pasa por parámetro. Esta ID se obtiene de la ruta del anime random.
 
 ![Get anime episodes example](./imgs/get_anime_episodes.jpg)
